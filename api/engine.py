@@ -1,218 +1,230 @@
-"""
-ENGINE RPG D&D + QWAN + MiniLLM CRIATIVO
-"""
-
 import random
-import uuid
-import numpy as np
-from typing import Dict
+import math
 from sentence_transformers import SentenceTransformer
+import numpy as np
 
 # ==========================================================
-# MINI LLM
+# MODELO SEMÂNTICO
 # ==========================================================
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Vetores âncora
-ANCORAS = {
-    "combate": model.encode("batalha luta sangue ataque"),
-    "magia": model.encode("magia feitiço arcano poder místico"),
-    "drama": model.encode("traição tensão medo perda"),
+# Âncoras narrativas (não aparecem para o jogador)
+ANCHORS = {
+    "combate": model.encode("luta batalha ataque violência confronto"),
+    "magia": model.encode("feitiço magia energia mística poder arcano"),
+    "drama": model.encode("tensão medo silêncio suspense perigo"),
 }
 
 # ==========================================================
-# SESSÕES
+# ESTADO GLOBAL DAS SALAS
 # ==========================================================
 
-SESSOES: Dict[str, Dict] = {}
+ROOMS = {}
+
+
+def get_room(room_id):
+    if room_id not in ROOMS:
+        ROOMS[room_id] = {
+            "boss_hp": 120,
+            "fase": 1,
+            "entropia": 0.0
+        }
+    return ROOMS[room_id]
+
 
 # ==========================================================
-# QWAN
+# FUNÇÃO QWAN (influencia o tom)
 # ==========================================================
 
-def calcular_qwan(texto):
+def detectar_tom(texto):
+    vetor = model.encode(texto)
+    scores = {}
 
-    emb = model.encode(texto)
+    for chave, anchor in ANCHORS.items():
+        sim = np.dot(vetor, anchor) / (
+            np.linalg.norm(vetor) * np.linalg.norm(anchor)
+        )
+        scores[chave] = sim
 
-    scores = {
-        k: float(np.dot(emb, v) / (np.linalg.norm(emb) * np.linalg.norm(v)))
-        for k, v in ANCORAS.items()
-    }
+    dominante = max(scores, key=scores.get)
 
-    intensidade = np.linalg.norm(emb)
+    if scores[dominante] > 0.55:
+        return dominante
+    return "neutro"
 
-    if intensidade > 15:
-        regime = "épico"
-    elif scores["combate"] > 0.6:
-        regime = "tenso"
-    elif scores["magia"] > 0.6:
-        regime = "místico"
+
+# ==========================================================
+# NARRADOR CINEMATOGRÁFICO
+# ==========================================================
+
+def narrar_acao(texto, tom):
+    falas = [
+        "— Isso termina agora.",
+        "— Venha, criatura.",
+        "— Pelo destino.",
+        "— Não hoje."
+    ]
+
+    fala = random.choice(falas)
+
+    if tom == "combate":
+        return f"""
+O impacto do seu movimento rompe o silêncio do salão.
+
+{fala}
+
+O ar vibra com o peso da decisão.
+A criatura reage com um rugido áspero,
+mas você já está em movimento.
+"""
+
+    elif tom == "magia":
+        return f"""
+Um brilho sutil percorre o ambiente enquanto sua energia desperta.
+
+{fala}
+
+O ar se dobra ao redor de suas mãos.
+Algo invisível responde ao seu chamado.
+"""
+
+    elif tom == "drama":
+        return f"""
+O silêncio antes do golpe é quase ensurdecedor.
+
+{fala}
+
+Seus passos ecoam no chão úmido.
+A tensão é tão palpável quanto o cheiro da batalha.
+"""
+
     else:
-        regime = "calmo"
+        return f"""
+Você avança.
 
-    return regime, scores
+{fala}
+
+O mundo parece segurar a respiração.
+"""
+
 
 # ==========================================================
-# PERSONAGEM
+# SISTEMA DE COMBATE
 # ==========================================================
 
-def criar_personagem(nome, classe):
+def rolar_d20():
+    return random.randint(1, 20)
 
-    stats = {k: random.randint(8, 16) for k in [
-        "forca", "destreza", "constituicao",
-        "inteligencia", "sabedoria", "carisma"
-    ]}
 
-    mods = {k: (v - 10) // 2 for k, v in stats.items()}
+def calcular_dano(base=8):
+    return random.randint(base - 3, base + 3)
 
-    if classe == "mago":
-        hp = 18 + mods["constituicao"]
-        mana = 30
-    elif classe == "ladino":
-        hp = 24 + mods["constituicao"]
-        mana = 12
+
+def atualizar_fase(room):
+    hp = room["boss_hp"]
+
+    if hp < 40:
+        room["fase"] = 3
+    elif hp < 80:
+        room["fase"] = 2
     else:
-        hp = 32 + mods["constituicao"]
-        mana = 6
+        room["fase"] = 1
 
-    return {
-        "nome": nome,
-        "classe": classe,
-        "stats": stats,
-        "mods": mods,
-        "hp": hp,
-        "hp_max": hp,
-        "mana": mana,
-        "mana_max": mana,
-        "xp": 0
-    }
+
+def narrar_boss(room):
+    if room["fase"] == 1:
+        return "A criatura mantém postura defensiva, analisando cada movimento."
+    elif room["fase"] == 2:
+        return "Ferido, o monstro se torna mais agressivo. Seus olhos brilham com fúria."
+    else:
+        return "Desesperado, o anfíbio ruge e ataca sem cálculo, pura sobrevivência."
+
 
 # ==========================================================
 # CRIAR SESSÃO
 # ==========================================================
 
-def criar_sessao(nome, classe="guerreiro"):
+def criar_sessao(nome, classe, room_id):
+    room = get_room(room_id)
 
-    session_id = str(uuid.uuid4())
-
-    personagem = criar_personagem(nome, classe)
-
-    SESSOES[session_id] = {
-        "personagem": personagem,
-        "inimigo": {
-            "nome": "Líder Anfíbio",
-            "hp": 40,
-            "defesa": 13
-        },
-        "regime": "calmo"
+    personagem = {
+        "nome": nome,
+        "classe": classe,
+        "hp": 100,
+        "mana": 60,
+        "xp": 0
     }
 
     return {
-        "session_id": session_id,
+        "session_id": f"{room_id}_{nome}",
         "personagem": personagem
     }
 
-# ==========================================================
-# D20
-# ==========================================================
-
-def rolar_d20(mod=0):
-    roll = random.randint(1, 20)
-    return roll, roll + mod
 
 # ==========================================================
-# NARRATIVA CRIATIVA
+# ANALISAR CENA (NARRATIVO PURO)
 # ==========================================================
 
-def narrar_combate(regime, dano):
+def analisar_qwan_narrativo(textos, room_id="default"):
+    texto = textos[0]
+    room = get_room(room_id)
 
-    if regime == "épico":
-        return f"⚡ O impacto ressoa como um trovão ancestral causando {dano} de dano!"
-    elif regime == "tenso":
-        return f"⚔️ O golpe atravessa a defesa inimiga causando {dano} de dano."
-    elif regime == "místico":
-        return f"✨ A energia arcana explode causando {dano} de dano."
-    else:
-        return f"O ataque causa {dano} de dano."
+    tom = detectar_tom(texto)
 
-# ==========================================================
-# COMBATE
-# ==========================================================
-
-def combate(session_id, acao):
-
-    sessao = SESSOES.get(session_id)
-    if not sessao:
-        return {"erro": "Sessão inválida"}
-
-    personagem = sessao["personagem"]
-    inimigo = sessao["inimigo"]
-
-    narrativa = ""
-
-    if acao.lower() == "atacar":
-
-        roll, total = rolar_d20(personagem["mods"]["forca"])
-
-        if total >= inimigo["defesa"]:
-            dano = random.randint(6, 12)
-            inimigo["hp"] -= dano
-            narrativa += narrar_combate(sessao["regime"], dano)
-        else:
-            narrativa += "O golpe falha."
-
-    elif acao.lower() == "magia":
-
-        if personagem["mana"] < 5:
-            narrativa += "Mana insuficiente."
-        else:
-            personagem["mana"] -= 5
-            dano = random.randint(8, 14)
-            inimigo["hp"] -= dano
-            narrativa += narrar_combate("místico", dano)
-
-    else:
-        narrativa += "Você assume postura defensiva."
-
-    if inimigo["hp"] <= 0:
-        narrativa += "\n🏆 O inimigo cai derrotado."
-        personagem["xp"] += 25
+    narrativa = narrar_acao(texto, tom)
 
     return {
-        "narrativa": narrativa,
-        "hp": personagem["hp"],
-        "mana": personagem["mana"],
-        "hp_inimigo": inimigo["hp"],
-        "xp": personagem["xp"]
+        "narrativa": narrativa.strip()
     }
 
+
 # ==========================================================
-# ANALISAR CENA COM QWAN
+# COMBATE ESTRUTURADO
 # ==========================================================
 
-def analisar_qwan_narrativo(textos):
+def combate(session_id, acao, room_id="default"):
+    room = get_room(room_id)
 
-    texto = textos[-1] if textos else ""
+    rolagem = rolar_d20()
+    dano = calcular_dano()
 
-    regime, scores = calcular_qwan(texto)
+    sucesso = rolagem >= 10
 
-    narrativa = f"""
-O ambiente reage às suas palavras.
+    if sucesso:
+        room["boss_hp"] -= dano
 
-Regime narrativo: {regime.upper()}
+    atualizar_fase(room)
 
-Você declara:
-"{texto}"
+    descricao_boss = narrar_boss(room)
 
-A tensão no ar muda.
+    if sucesso:
+        narrativa = f"""
+Você investe contra o inimigo.
+
+O dado rola… {rolagem}.
+
+O golpe acerta com força.
+A criatura recua sob o impacto.
+
+{descricao_boss}
+"""
+    else:
+        narrativa = f"""
+Você ataca com determinação.
+
+O dado rola… {rolagem}.
+
+A criatura esquiva por pouco.
+Seu movimento corta apenas o ar.
+
+{descricao_boss}
 """
 
     return {
-        "cena": {
-            "texto": narrativa.strip(),
-            "regime": regime,
-            "nivel_campanha": 1,
-            "escolhas": ["Atacar", "Magia", "Defender"]
-        }
+        "narrativa": narrativa.strip(),
+        "hp": 100,
+        "mana": 60,
+        "xp": 10 if sucesso else 0,
+        "hp_inimigo": max(room["boss_hp"], 0)
     }

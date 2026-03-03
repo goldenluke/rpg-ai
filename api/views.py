@@ -1,32 +1,12 @@
+import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import render
-import json
 
 from .engine import (
-    analisar_qwan_narrativo,
     criar_sessao,
-    combate,
-    SESSOES
+    analisar_qwan_narrativo,
+    combate
 )
-
-# ==========================================================
-# INDEX
-# ==========================================================
-
-def index_view(request):
-    return render(request, "index.html")
-
-
-# ==========================================================
-# DASHBOARD
-# ==========================================================
-
-def dashboard_view(request):
-    return JsonResponse({
-        "status": "RPG Engine Online",
-        "sessoes_ativas": len(SESSOES)
-    })
 
 
 # ==========================================================
@@ -35,41 +15,41 @@ def dashboard_view(request):
 
 @csrf_exempt
 def criar_sessao_view(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
 
-    if request.method != "POST":
-        return JsonResponse({"erro": "Método não permitido"}, status=405)
+        nome = data.get("nome")
+        classe = data.get("classe")
+        room_id = data.get("room_id", "default")
 
-    body = json.loads(request.body)
+        resultado = criar_sessao(nome, classe, room_id)
 
-    nome = body.get("nome", "Aventureiro")
-    classe = body.get("classe", "guerreiro")
+        return JsonResponse(resultado)
 
-    resultado = criar_sessao(nome, classe)
-
-    return JsonResponse(resultado)
+    return JsonResponse({"erro": "Método inválido"})
 
 
 # ==========================================================
-# ANALISAR CENA
+# ANALISAR CENA (NARRATIVO)
 # ==========================================================
+
+
 
 @csrf_exempt
 def analisar_cena(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
 
-    if request.method != "POST":
-        return JsonResponse({"erro": "Método não permitido"}, status=405)
+        textos = data.get("textos", [])
+        room_id = data.get("room_id", "default")
 
-    body = json.loads(request.body)
-    textos = body.get("textos", [])
+        resultado = analisar_qwan_narrativo(textos, room_id)
 
-    resultado = analisar_qwan_narrativo(textos)
+        return JsonResponse({
+            "narrativa": resultado["narrativa"]
+        })
 
-    return JsonResponse({
-        "narrativa": resultado["cena"]["texto"],
-        "regime": resultado["cena"]["regime"],
-        "nivel_campanha": resultado["cena"]["nivel_campanha"],
-        "escolhas": resultado["cena"]["escolhas"]
-    })
+    return JsonResponse({"erro": "Método inválido"})
 
 
 # ==========================================================
@@ -78,15 +58,21 @@ def analisar_cena(request):
 
 @csrf_exempt
 def combate_view(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
 
-    if request.method != "POST":
-        return JsonResponse({"erro": "Método não permitido"}, status=405)
+        session_id = data.get("session_id")
+        acao = data.get("acao")
+        room_id = data.get("room_id", "default")
 
-    body = json.loads(request.body)
+        resultado = combate(session_id, acao, room_id)
 
-    session_id = body.get("session_id")
-    acao = body.get("acao", "Atacar")
+        return JsonResponse(resultado)
 
-    resultado = combate(session_id, acao)
+    return JsonResponse({"erro": "Método inválido"})
 
-    return JsonResponse(resultado)
+
+from django.shortcuts import render
+
+def dashboard_view(request):
+    return render(request, "index.html")
