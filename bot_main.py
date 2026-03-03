@@ -5,87 +5,246 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# 1. Carrega as variáveis de ambiente (.env)
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-API_URL = os.getenv("API_URL")
+# ==========================================================
+# CONFIG
+# ==========================================================
 
-# 2. Classe customizada para gerenciar a sincronização do menu '/'
+load_dotenv()
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+API_BASE = os.getenv("API_BASE_URL")
+
+ROOMS = {}  # Estado multiplayer por canal
+
+
+# ==========================================================
+# BOT BASE
+# ==========================================================
+
 class RPG_Bot(commands.Bot):
     def __init__(self):
-        # Intents necessários para o funcionamento pleno
         intents = discord.Intents.all()
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        """Este método roda antes do bot ligar e registra os comandos no Discord"""
-        print("🔄 Sincronizando menu de comandos '/'...")
-        try:
-            # Sincroniza os comandos com os servidores do Discord
-            synced = await self.tree.sync()
-            print(f"✅ Sincronizado: {len(synced)} comandos registrados no menu.")
-        except Exception as e:
-            print(f"❌ Erro ao sincronizar: {e}")
+        print("🔄 Sincronizando comandos...")
+        synced = await self.tree.sync()
+        print(f"✅ {len(synced)} comandos sincronizados.")
 
-# Instancia o bot
+
 bot = RPG_Bot()
+
+
+# ==========================================================
+# UTILIDADES
+# ==========================================================
+
+def get_room(channel_id):
+    if channel_id not in ROOMS:
+        ROOMS[channel_id] = {
+            "players": {},
+            "turn_order": [],
+            "current_turn": None,
+            "guild": None
+        }
+    return ROOMS[channel_id]
+
+
+def advance_turn(room):
+    if not room["turn_order"]:
+        return
+
+    idx = room["turn_order"].index(room["current_turn"])
+    next_idx = (idx + 1) % len(room["turn_order"])
+    room["current_turn"] = room["turn_order"][next_idx]
+
+
+# ==========================================================
+# READY
+# ==========================================================
 
 @bot.event
 async def on_ready():
-    print("\n" + "="*30)
-    print(f"✅ SISTEMA OPERACIONAL!")
-    print(f"🤖 Bot: {bot.user.name}")
-    print(f"📡 Status: Online no menu '/'")
-    print("="*30 + "\n")
+    print("=" * 40)
+    print(f"🤖 Bot Online: {bot.user}")
+    print("=" * 40)
 
-# --- COMANDOS DO MENU VISUAL (SLASH COMMANDS) ---
 
-@bot.tree.command(name="oi", description="Verifica se o bot está ouvindo o canal")
-async def oi(interaction: discord.Interaction):
-    """Comando simples de resposta rápida"""
-    await interaction.response.send_message(
-        f"🌊 Olá {interaction.user.mention}! Estou pronto para processar sua narrativa."
-    )
+# ==========================================================
+# CRIAR PERSONAGEM
+# ==========================================================
 
-@bot.tree.command(name="narrar", description="Analisa a cena de RPG e retorna a regra do Django Ninja")
-@app_commands.describe(texto="Descreva o que está acontecendo (Ex: Katara ergueu as mãos)")
-async def narrar(interaction: discord.Interaction, texto: str):
-    """Envia a descrição para a API RAG Lite e exibe o resultado"""
+@bot.tree.command(name="criar", description="Criar personagem na sala atual")
+@app_commands.describe(nome="Nome do personagem", classe="guerreiro, mago ou ladino")
+async def criar(interaction: discord.Interaction, nome: str, classe: str):
 
-    # Indica ao Discord que o bot está 'pensando' (evita erro de timeout em 3s)
     await interaction.response.defer(thinking=True)
 
-    try:
-        # Chamada para o backend Django Ninja
-        payload = {"texto": texto}
-        response = requests.post(API_URL, json=payload, timeout=15)
+    channel_id = interaction.channel.id
+    room = get_room(channel_id)
 
-        if response.status_code == 200:
-            dados = response.json()
-            regra_nome = dados.get("regra_detectada", "Protocolo Geral")
-            detalhes = dados.get("detalhes", "O mestre deve arbitrar a cena.")
+    response = requests.post(
+        f"{API_BASE}/criar-sessao",
+        json={
+            "nome": nome,
+            "classe": classe,
+            "room_id": str(channel_id),
+            "user_id": str(interaction.user.id)
+        }
+    )
 
-            # Formata a resposta em um Embed elegante
-            embed = discord.Embed(
-                title=f"🧠 Análise de Contexto: {regra_nome}",
-                description=detalhes,
-                color=discord.Color.from_rgb(114, 137, 218) # Azul clássico Discord
-            )
-            embed.add_field(name="Narrativa analisada", value=f"*{texto[:200]}...*", inline=False)
-            embed.set_footer(text="Motor: Django Ninja + RAG Lite")
+    data = response.json()
+    session_id = data["session_id"]
 
-            # Envia o resultado final
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(f"⚠️ Erro no Cérebro (Status {response.status_code}). O Django está ligado?")
+    room["players"][interaction.user.id] = session_id
 
-    except Exception as e:
-        print(f"❌ Erro de conexão: {e}")
-        await interaction.followup.send("❌ Não consegui conectar ao servidor de regras do RPG.")
+    if interaction.user.id not in room["turn_order"]:
+        room["turn_order"].append(interaction.user.id)
 
-# 4. Execução do Bot
+    if room["current_turn"] is None:
+        room["current_turn"] = interaction.user.id
+
+    embed = discord.Embed(
+        title=f"🧙 {nome} entrou na aventura!",
+        color=discord.Color.green()
+    )
+
+    embed.add_field(name="Classe", value=classe)
+    embed.add_field(name="HP", value=data["personagem"]["hp"])
+    embed.add_field(name="Mana", value=data["personagem"]["mana"])
+
+    await interaction.followup.send(embed=embed)
+
+
+# ==========================================================
+# NARRAR
+# ==========================================================
+
+@bot.tree.command(name="narrar", description="Enviar narrativa para o motor QWAN")
+@app_commands.describe(texto="Descreva sua ação")
+async def narrar(interaction: discord.Interaction, texto: str):
+
+    await interaction.response.defer(thinking=True)
+
+    channel_id = interaction.channel.id
+
+    response = requests.post(
+        f"{API_BASE}/analisar-cena",
+        json={
+            "textos": [texto],
+            "room_id": str(channel_id),
+            "user_id": str(interaction.user.id)
+        }
+    )
+
+    data = response.json()
+
+    embed = discord.Embed(
+        title="📖 Narrativa",
+        description=data["narrativa"],
+        color=discord.Color.blue()
+    )
+
+    await interaction.followup.send(embed=embed)
+
+
+# ==========================================================
+# AÇÃO (COM TURNO REAL)
+# ==========================================================
+
+@bot.tree.command(name="acao", description="Executar ação no seu turno")
+@app_commands.describe(tipo="Atacar, Magia ou Defender")
+async def acao(interaction: discord.Interaction, tipo: str):
+
+    await interaction.response.defer(thinking=True)
+
+    channel_id = interaction.channel.id
+    user_id = interaction.user.id
+
+    room = get_room(channel_id)
+
+    if user_id not in room["players"]:
+        await interaction.followup.send("⚠️ Você precisa criar um personagem primeiro.")
+        return
+
+    if room["current_turn"] != user_id:
+        await interaction.followup.send(
+            f"⏳ Não é seu turno! É o turno de <@{room['current_turn']}>."
+        )
+        return
+
+    session_id = room["players"][user_id]
+
+    response = requests.post(
+        f"{API_BASE}/combate",
+        json={
+            "session_id": session_id,
+            "acao": tipo,
+            "room_id": str(channel_id),
+            "user_id": str(user_id)
+        }
+    )
+
+    data = response.json()
+
+    embed = discord.Embed(
+        title=f"⚔️ {interaction.user.display_name} usou {tipo}",
+        description=data["narrativa"],
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="HP", value=data["hp"])
+    embed.add_field(name="Mana", value=data["mana"])
+    embed.add_field(name="XP", value=data["xp"])
+    embed.add_field(name="HP Inimigo", value=data["hp_inimigo"])
+
+    await interaction.followup.send(embed=embed)
+
+    # Avança turno
+    advance_turn(room)
+
+    if room["current_turn"]:
+        await interaction.channel.send(
+            f"🔄 Próximo turno: <@{room['current_turn']}>"
+        )
+
+
+# ==========================================================
+# STATUS
+# ==========================================================
+
+@bot.tree.command(name="status", description="Ver status da sala")
+async def status(interaction: discord.Interaction):
+
+    channel_id = interaction.channel.id
+    room = get_room(channel_id)
+
+    embed = discord.Embed(
+        title="📊 Status da Sala",
+        color=discord.Color.purple()
+    )
+
+    embed.add_field(
+        name="Jogadores",
+        value="\n".join([f"<@{u}>" for u in room["players"].keys()]) or "Nenhum",
+        inline=False
+    )
+
+    embed.add_field(
+        name="Turno Atual",
+        value=f"<@{room['current_turn']}>" if room["current_turn"] else "Nenhum"
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+
+# ==========================================================
+# EXECUÇÃO
+# ==========================================================
+
 if __name__ == "__main__":
+
     if not TOKEN:
-        print("❌ ERRO: DISCORD_TOKEN não encontrado. Verifique seu arquivo .env")
+        print("❌ DISCORD_TOKEN não encontrado.")
     else:
         bot.run(TOKEN)
