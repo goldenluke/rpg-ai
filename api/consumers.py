@@ -2,7 +2,6 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 class RPGConsumer(AsyncWebsocketConsumer):
-
     async def connect(self):
         self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
         self.room_group_name = f"rpg_{self.room_id}"
@@ -21,16 +20,13 @@ class RPGConsumer(AsyncWebsocketConsumer):
         )
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
-
-        # Broadcast para todos da sala
         await self.channel_layer.group_send(
             self.room_group_name,
             {
-                "type": "rpg_message",
-                "message": data
+                "type": "broadcast_message",
+                "message": text_data
             }
         )
 
-    async def rpg_message(self, event):
-        await self.send(text_data=json.dumps(event["message"]))
+    async def broadcast_message(self, event):
+        await self.send(text_data=event["message"])

@@ -13,88 +13,247 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# 1. Carrega as variáveis de ambiente (.env)
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-API_URL = os.getenv("API_URL")
+# ==========================================================
+# CONFIG
+# ==========================================================
 
-# 2. Classe customizada para gerenciar a sincronização do menu '/'
+load_dotenv()
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+API_BASE = os.getenv("API_BASE_URL")
+
+ROOMS = {}  # Estado multiplayer por canal
+
+
+# ==========================================================
+# BOT BASE
+# ==========================================================
+
 class RPG_Bot(commands.Bot):
     def __init__(self):
-        # Intents necessários para o funcionamento pleno
         intents = discord.Intents.all()
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        """Este método roda antes do bot ligar e registra os comandos no Discord"""
-        print("🔄 Sincronizando menu de comandos '/'...")
-        try:
-            # Sincroniza os comandos com os servidores do Discord
-            synced = await self.tree.sync()
-            print(f"✅ Sincronizado: {len(synced)} comandos registrados no menu.")
-        except Exception as e:
-            print(f"❌ Erro ao sincronizar: {e}")
+        print("🔄 Sincronizando comandos...")
+        synced = await self.tree.sync()
+        print(f"✅ {len(synced)} comandos sincronizados.")
 
-# Instancia o bot
+
 bot = RPG_Bot()
+
+
+# ==========================================================
+# UTILIDADES
+# ==========================================================
+
+def get_room(channel_id):
+    if channel_id not in ROOMS:
+        ROOMS[channel_id] = {
+            "players": {},
+            "turn_order": [],
+            "current_turn": None,
+            "guild": None
+        }
+    return ROOMS[channel_id]
+
+
+def advance_turn(room):
+    if not room["turn_order"]:
+        return
+
+    idx = room["turn_order"].index(room["current_turn"])
+    next_idx = (idx + 1) % len(room["turn_order"])
+    room["current_turn"] = room["turn_order"][next_idx]
+
+
+# ==========================================================
+# READY
+# ==========================================================
 
 @bot.event
 async def on_ready():
-    print("\n" + "="*30)
-    print(f"✅ SISTEMA OPERACIONAL!")
-    print(f"🤖 Bot: {bot.user.name}")
-    print(f"📡 Status: Online no menu '/'")
-    print("="*30 + "\n")
+    print("=" * 40)
+    print(f"🤖 Bot Online: {bot.user}")
+    print("=" * 40)
 
-# --- COMANDOS DO MENU VISUAL (SLASH COMMANDS) ---
 
-@bot.tree.command(name="oi", description="Verifica se o bot está ouvindo o canal")
-async def oi(interaction: discord.Interaction):
-    """Comando simples de resposta rápida"""
-    await interaction.response.send_message(
-        f"🌊 Olá {interaction.user.mention}! Estou pronto para processar sua narrativa."
-    )
+# ==========================================================
+# CRIAR PERSONAGEM
+# ==========================================================
 
-@bot.tree.command(name="narrar", description="Analisa a cena de RPG e retorna a regra do Django Ninja")
-@app_commands.describe(texto="Descreva o que está acontecendo (Ex: Katara ergueu as mãos)")
-async def narrar(interaction: discord.Interaction, texto: str):
-    """Envia a descrição para a API RAG Lite e exibe o resultado"""
+@bot.tree.command(name="criar", description="Criar personagem na sala atual")
+@app_commands.describe(nome="Nome do personagem", classe="guerreiro, mago ou ladino")
+async def criar(interaction: discord.Interaction, nome: str, classe: str):
 
-    # Indica ao Discord que o bot está 'pensando' (evita erro de timeout em 3s)
     await interaction.response.defer(thinking=True)
 
-    try:
-        # Chamada para o backend Django Ninja
-        payload = {"texto": texto}
-        response = requests.post(API_URL, json=payload, timeout=15)
+    channel_id = interaction.channel.id
+    room = get_room(channel_id)
 
-        if response.status_code == 200:
-            dados = response.json()
-            regra_nome = dados.get("regra_detectada", "Protocolo Geral")
-            detalhes = dados.get("detalhes", "O mestre deve arbitrar a cena.")
+    response = requests.post(
+        f"{API_BASE}/criar-sessao",
+        json={
+            "nome": nome,
+            "classe": classe,
+            "room_id": str(channel_id),
+            "user_id": str(interaction.user.id)
+        }
+    )
 
-            # Formata a resposta em um Embed elegante
-            embed = discord.Embed(
-                title=f"🧠 Análise de Contexto: {regra_nome}",
-                description=detalhes,
-                color=discord.Color.from_rgb(114, 137, 218) # Azul clássico Discord
-            )
-            embed.add_field(name="Narrativa analisada", value=f"*{texto[:200]}...*", inline=False)
-            embed.set_footer(text="Motor: Django Ninja + RAG Lite")
+    data = response.json()
+    session_id = data["session_id"]
 
-            # Envia o resultado final
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(f"⚠️ Erro no Cérebro (Status {response.status_code}). O Django está ligado?")
+    room["players"][interaction.user.id] = session_id
 
-    except Exception as e:
-        print(f"❌ Erro de conexão: {e}")
-        await interaction.followup.send("❌ Não consegui conectar ao servidor de regras do RPG.")
+    if interaction.user.id not in room["turn_order"]:
+        room["turn_order"].append(interaction.user.id)
 
-# 4. Execução do Bot
+    if room["current_turn"] is None:
+        room["current_turn"] = interaction.user.id
+
+    embed = discord.Embed(
+        title=f"🧙 {nome} entrou na aventura!",
+        color=discord.Color.green()
+    )
+
+    embed.add_field(name="Classe", value=classe)
+    embed.add_field(name="HP", value=data["personagem"]["hp"])
+    embed.add_field(name="Mana", value=data["personagem"]["mana"])
+
+    await interaction.followup.send(embed=embed)
+
+
+# ==========================================================
+# NARRAR
+# ==========================================================
+
+@bot.tree.command(name="narrar", description="Enviar narrativa para o motor QWAN")
+@app_commands.describe(texto="Descreva sua ação")
+async def narrar(interaction: discord.Interaction, texto: str):
+
+    await interaction.response.defer(thinking=True)
+
+    channel_id = interaction.channel.id
+
+    response = requests.post(
+        f"{API_BASE}/analisar-cena",
+        json={
+            "textos": [texto],
+            "room_id": str(channel_id),
+            "user_id": str(interaction.user.id)
+        }
+    )
+
+    data = response.json()
+
+    embed = discord.Embed(
+        title="📖 Narrativa",
+        description=data["narrativa"],
+        color=discord.Color.blue()
+    )
+
+    await interaction.followup.send(embed=embed)
+
+
+# ==========================================================
+# AÇÃO (COM TURNO REAL)
+# ==========================================================
+
+@bot.tree.command(name="acao", description="Executar ação no seu turno")
+@app_commands.describe(tipo="Atacar, Magia ou Defender")
+async def acao(interaction: discord.Interaction, tipo: str):
+
+    await interaction.response.defer(thinking=True)
+
+    channel_id = interaction.channel.id
+    user_id = interaction.user.id
+
+    room = get_room(channel_id)
+
+    if user_id not in room["players"]:
+        await interaction.followup.send("⚠️ Você precisa criar um personagem primeiro.")
+        return
+
+    if room["current_turn"] != user_id:
+        await interaction.followup.send(
+            f"⏳ Não é seu turno! É o turno de <@{room['current_turn']}>."
+        )
+        return
+
+    session_id = room["players"][user_id]
+
+    response = requests.post(
+        f"{API_BASE}/combate",
+        json={
+            "session_id": session_id,
+            "acao": tipo,
+            "room_id": str(channel_id),
+            "user_id": str(user_id)
+        }
+    )
+
+    data = response.json()
+
+    embed = discord.Embed(
+        title=f"⚔️ {interaction.user.display_name} usou {tipo}",
+        description=data["narrativa"],
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="HP", value=data["hp"])
+    embed.add_field(name="Mana", value=data["mana"])
+    embed.add_field(name="XP", value=data["xp"])
+    embed.add_field(name="HP Inimigo", value=data["hp_inimigo"])
+
+    await interaction.followup.send(embed=embed)
+
+    # Avança turno
+    advance_turn(room)
+
+    if room["current_turn"]:
+        await interaction.channel.send(
+            f"🔄 Próximo turno: <@{room['current_turn']}>"
+        )
+
+
+# ==========================================================
+# STATUS
+# ==========================================================
+
+@bot.tree.command(name="status", description="Ver status da sala")
+async def status(interaction: discord.Interaction):
+
+    channel_id = interaction.channel.id
+    room = get_room(channel_id)
+
+    embed = discord.Embed(
+        title="📊 Status da Sala",
+        color=discord.Color.purple()
+    )
+
+    embed.add_field(
+        name="Jogadores",
+        value="\n".join([f"<@{u}>" for u in room["players"].keys()]) or "Nenhum",
+        inline=False
+    )
+
+    embed.add_field(
+        name="Turno Atual",
+        value=f"<@{room['current_turn']}>" if room["current_turn"] else "Nenhum"
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+
+# ==========================================================
+# EXECUÇÃO
+# ==========================================================
+
 if __name__ == "__main__":
+
     if not TOKEN:
-        print("❌ ERRO: DISCORD_TOKEN não encontrado. Verifique seu arquivo .env")
+        print("❌ DISCORD_TOKEN não encontrado.")
     else:
         bot.run(TOKEN)
 
@@ -155,58 +314,268 @@ class ApiConfig(AppConfig):
 
 # === Fim do arquivo: ./api/apps.py ===
 
+# === Início do arquivo: ./api/consumers.py ===
+
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+
+class RPGConsumer(AsyncWebsocketConsumer):
+
+    async def connect(self):
+        self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
+        self.room_group_name = f"rpg_{self.room_id}"
+
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
+
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(
+            self.room_group_name,
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+
+        # Broadcast para todos da sala
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                "type": "rpg_message",
+                "message": data
+            }
+        )
+
+    async def rpg_message(self, event):
+        await self.send(text_data=json.dumps(event["message"]))
+
+
+# === Fim do arquivo: ./api/consumers.py ===
+
 # === Início do arquivo: ./api/engine.py ===
 
-# api/engine.py
-from sentence_transformers import SentenceTransformer, util
-import torch
+"""
+ENGINE RPG D&D + QWAN + MiniLLM CRIATIVO
+"""
 
-# 1. Carrega o modelo (na primeira vez ele faz o download, depois usa o cache)
-model = SentenceTransformer('all-MiniLM-L6-v2')
+import random
+import uuid
+import numpy as np
+from typing import Dict
+from sentence_transformers import SentenceTransformer
 
-# 2. Nossa Base de Conhecimento (Simulando o RAG Lite em memória)
-# Aqui você coloca as "Regras de Ouro" do seu sistema de RPG
-REGRAS_RPG = [
-    {
-        "id": "PROT_AGUA_01",
-        "regra": "Dobra de Água Defensiva",
-        "descricao": "Quando a água responde como criatura obediente para proteção, adicione +5 em testes de CA contra projéteis."
-    },
-    {
-        "id": "PROT_CONFLITO_02",
-        "regra": "Tensão Narrativa: O Colapso",
-        "descricao": "Se o personagem segura o colapso em vez de provocá-lo, ele ganha um Ponto de Destino, mas sofre 1d6 de dano de exaustão por turno."
-    },
-    {
-        "id": "PROT_ANUROK_03",
-        "regra": "Fúria dos Anurok",
-        "descricao": "Invocação de ondas internas aumenta o nível da água. Personagens sem natação devem fazer teste de Força (DC 15)."
-    },
-    {
-        "id": "PROT_REDENCAO_04",
-        "regra": "O Meio da Escolha",
-        "descricao": "Personagens entre a vingança e a redenção (como Jet) não rolam dados; o Mestre decide o resultado baseado no próximo diálogo."
+# ==========================================================
+# MINI LLM
+# ==========================================================
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Vetores âncora
+ANCORAS = {
+    "combate": model.encode("batalha luta sangue ataque"),
+    "magia": model.encode("magia feitiço arcano poder místico"),
+    "drama": model.encode("traição tensão medo perda"),
+}
+
+# ==========================================================
+# SESSÕES
+# ==========================================================
+
+SESSOES: Dict[str, Dict] = {}
+
+# ==========================================================
+# QWAN
+# ==========================================================
+
+def calcular_qwan(texto):
+
+    emb = model.encode(texto)
+
+    scores = {
+        k: float(np.dot(emb, v) / (np.linalg.norm(emb) * np.linalg.norm(v)))
+        for k, v in ANCORAS.items()
     }
-]
 
-# Pré-processamento: Transformamos as descrições das regras em vetores (embeddings)
-textos_regras = [r["descricao"] for r in REGRAS_RPG]
-embeddings_regras = model.encode(textos_regras, convert_to_tensor=True)
+    intensidade = np.linalg.norm(emb)
 
-def buscar_contexto_rpg(texto_usuario):
-    """
-    Recebe a narração (ex: 'Jet segura o colapso') e retorna a regra mais próxima.
-    """
-    # Transforma a entrada do usuário em vetor
-    query_embedding = model.encode(texto_usuario, convert_to_tensor=True)
+    if intensidade > 15:
+        regime = "épico"
+    elif scores["combate"] > 0.6:
+        regime = "tenso"
+    elif scores["magia"] > 0.6:
+        regime = "místico"
+    else:
+        regime = "calmo"
 
-    # Calcula a similaridade de cosseno entre a entrada e todas as regras
-    cos_scores = util.cos_sim(query_embedding, embeddings_regras)[0]
+    return regime, scores
 
-    # Pega o índice do melhor resultado
-    melhor_resultado_idx = torch.argmax(cos_scores).item()
+# ==========================================================
+# PERSONAGEM
+# ==========================================================
 
-    return REGRAS_RPG[melhor_resultado_idx]
+def criar_personagem(nome, classe):
+
+    stats = {k: random.randint(8, 16) for k in [
+        "forca", "destreza", "constituicao",
+        "inteligencia", "sabedoria", "carisma"
+    ]}
+
+    mods = {k: (v - 10) // 2 for k, v in stats.items()}
+
+    if classe == "mago":
+        hp = 18 + mods["constituicao"]
+        mana = 30
+    elif classe == "ladino":
+        hp = 24 + mods["constituicao"]
+        mana = 12
+    else:
+        hp = 32 + mods["constituicao"]
+        mana = 6
+
+    return {
+        "nome": nome,
+        "classe": classe,
+        "stats": stats,
+        "mods": mods,
+        "hp": hp,
+        "hp_max": hp,
+        "mana": mana,
+        "mana_max": mana,
+        "xp": 0
+    }
+
+# ==========================================================
+# CRIAR SESSÃO
+# ==========================================================
+
+def criar_sessao(nome, classe="guerreiro"):
+
+    session_id = str(uuid.uuid4())
+
+    personagem = criar_personagem(nome, classe)
+
+    SESSOES[session_id] = {
+        "personagem": personagem,
+        "inimigo": {
+            "nome": "Líder Anfíbio",
+            "hp": 40,
+            "defesa": 13
+        },
+        "regime": "calmo"
+    }
+
+    return {
+        "session_id": session_id,
+        "personagem": personagem
+    }
+
+# ==========================================================
+# D20
+# ==========================================================
+
+def rolar_d20(mod=0):
+    roll = random.randint(1, 20)
+    return roll, roll + mod
+
+# ==========================================================
+# NARRATIVA CRIATIVA
+# ==========================================================
+
+def narrar_combate(regime, dano):
+
+    if regime == "épico":
+        return f"⚡ O impacto ressoa como um trovão ancestral causando {dano} de dano!"
+    elif regime == "tenso":
+        return f"⚔️ O golpe atravessa a defesa inimiga causando {dano} de dano."
+    elif regime == "místico":
+        return f"✨ A energia arcana explode causando {dano} de dano."
+    else:
+        return f"O ataque causa {dano} de dano."
+
+# ==========================================================
+# COMBATE
+# ==========================================================
+
+def combate(session_id, acao):
+
+    sessao = SESSOES.get(session_id)
+    if not sessao:
+        return {"erro": "Sessão inválida"}
+
+    personagem = sessao["personagem"]
+    inimigo = sessao["inimigo"]
+
+    narrativa = ""
+
+    if acao.lower() == "atacar":
+
+        roll, total = rolar_d20(personagem["mods"]["forca"])
+
+        if total >= inimigo["defesa"]:
+            dano = random.randint(6, 12)
+            inimigo["hp"] -= dano
+            narrativa += narrar_combate(sessao["regime"], dano)
+        else:
+            narrativa += "O golpe falha."
+
+    elif acao.lower() == "magia":
+
+        if personagem["mana"] < 5:
+            narrativa += "Mana insuficiente."
+        else:
+            personagem["mana"] -= 5
+            dano = random.randint(8, 14)
+            inimigo["hp"] -= dano
+            narrativa += narrar_combate("místico", dano)
+
+    else:
+        narrativa += "Você assume postura defensiva."
+
+    if inimigo["hp"] <= 0:
+        narrativa += "\n🏆 O inimigo cai derrotado."
+        personagem["xp"] += 25
+
+    return {
+        "narrativa": narrativa,
+        "hp": personagem["hp"],
+        "mana": personagem["mana"],
+        "hp_inimigo": inimigo["hp"],
+        "xp": personagem["xp"]
+    }
+
+# ==========================================================
+# ANALISAR CENA COM QWAN
+# ==========================================================
+
+def analisar_qwan_narrativo(textos):
+
+    texto = textos[-1] if textos else ""
+
+    regime, scores = calcular_qwan(texto)
+
+    narrativa = f"""
+O ambiente reage às suas palavras.
+
+Regime narrativo: {regime.upper()}
+
+Você declara:
+"{texto}"
+
+A tensão no ar muda.
+"""
+
+    return {
+        "cena": {
+            "texto": narrativa.strip(),
+            "regime": regime,
+            "nivel_campanha": 1,
+            "escolhas": ["Atacar", "Magia", "Defender"]
+        }
+    }
 
 
 # === Fim do arquivo: ./api/engine.py ===
@@ -219,6 +588,95 @@ from django.db import models
 
 
 # === Fim do arquivo: ./api/models.py ===
+
+# === Início do arquivo: ./api/qwan.py ===
+
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from functools import lru_cache
+
+
+# ==============================
+# Load único do modelo
+# ==============================
+
+_model = None
+
+
+def get_model():
+    global _model
+    if _model is None:
+        _model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _model
+
+
+# ==============================
+# Embedding
+# ==============================
+
+def embed_texts(texts):
+    model = get_model()
+    embeddings = model.encode(texts, convert_to_numpy=True)
+    return embeddings
+
+
+# ==============================
+# Núcleo QWAN
+# ==============================
+
+def qwan_score(texts):
+    """
+    Mede coerência estrutural entre textos.
+    """
+
+    if len(texts) < 2:
+        return 1.0
+
+    embeddings = embed_texts(texts)
+
+    # Similaridade média par-a-par
+    sim_matrix = cosine_similarity(embeddings)
+
+    # Remover diagonal
+    mask = ~np.eye(sim_matrix.shape[0], dtype=bool)
+    mean_similarity = sim_matrix[mask].mean()
+
+    # Centroide
+    centroid = embeddings.mean(axis=0)
+
+    # Distância média ao centro
+    distances = np.linalg.norm(embeddings - centroid, axis=1)
+    structural_variance = distances.mean()
+
+    # QWAN score híbrido
+    score = (mean_similarity * 0.7) + ((1 - structural_variance) * 0.3)
+
+    return float(score)
+
+
+# ==============================
+# Similaridade contextual
+# ==============================
+
+def semantic_search(query, corpus):
+    model = get_model()
+
+    query_emb = model.encode([query], convert_to_numpy=True)
+    corpus_emb = model.encode(corpus, convert_to_numpy=True)
+
+    sims = cosine_similarity(query_emb, corpus_emb)[0]
+
+    ranked = sorted(
+        zip(corpus, sims),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    return ranked
+
+
+# === Fim do arquivo: ./api/qwan.py ===
 
 # === Início do arquivo: ./api/router.py ===
 
@@ -241,6 +699,13 @@ def analisar_cena(request, data: NarrativaSchema):
         "detalhes": resultado["descricao"]
     }
 
+from django.urls import re_path
+from . import consumers
+
+websocket_urlpatterns = [
+    re_path(r'ws/rpg/(?P<room_id>\w+)/$', consumers.RPGConsumer.as_asgi()),
+]
+
 
 # === Fim do arquivo: ./api/router.py ===
 
@@ -255,24 +720,98 @@ from django.test import TestCase
 
 # === Início do arquivo: ./api/views.py ===
 
-# api/views.py
-from ninja import Router, Schema
-from .engine import buscar_contexto_rpg
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import render
+import json
 
-# ESTA LINHA É A QUE ESTÁ FALTANDO:
-router = Router()
+from .engine import (
+    analisar_qwan_narrativo,
+    criar_sessao,
+    combate,
+    SESSOES
+)
 
-class NarrativaSchema(Schema):
-    texto: str
+# ==========================================================
+# INDEX
+# ==========================================================
 
-@router.post("/analisar-cena")
-def analisar_cena(request, data: NarrativaSchema):
-    resultado = buscar_contexto_rpg(data.texto)
-    return {
-        "status": "sucesso",
-        "regra_detectada": resultado["regra"],
-        "detalhes": resultado["descricao"]
-    }
+def index_view(request):
+    return render(request, "index.html")
+
+
+# ==========================================================
+# DASHBOARD
+# ==========================================================
+
+def dashboard_view(request):
+    return JsonResponse({
+        "status": "RPG Engine Online",
+        "sessoes_ativas": len(SESSOES)
+    })
+
+
+# ==========================================================
+# CRIAR SESSÃO
+# ==========================================================
+
+@csrf_exempt
+def criar_sessao_view(request):
+
+    if request.method != "POST":
+        return JsonResponse({"erro": "Método não permitido"}, status=405)
+
+    body = json.loads(request.body)
+
+    nome = body.get("nome", "Aventureiro")
+    classe = body.get("classe", "guerreiro")
+
+    resultado = criar_sessao(nome, classe)
+
+    return JsonResponse(resultado)
+
+
+# ==========================================================
+# ANALISAR CENA
+# ==========================================================
+
+@csrf_exempt
+def analisar_cena(request):
+
+    if request.method != "POST":
+        return JsonResponse({"erro": "Método não permitido"}, status=405)
+
+    body = json.loads(request.body)
+    textos = body.get("textos", [])
+
+    resultado = analisar_qwan_narrativo(textos)
+
+    return JsonResponse({
+        "narrativa": resultado["cena"]["texto"],
+        "regime": resultado["cena"]["regime"],
+        "nivel_campanha": resultado["cena"]["nivel_campanha"],
+        "escolhas": resultado["cena"]["escolhas"]
+    })
+
+
+# ==========================================================
+# COMBATE
+# ==========================================================
+
+@csrf_exempt
+def combate_view(request):
+
+    if request.method != "POST":
+        return JsonResponse({"erro": "Método não permitido"}, status=405)
+
+    body = json.loads(request.body)
+
+    session_id = body.get("session_id")
+    acao = body.get("acao", "Atacar")
+
+    resultado = combate(session_id, acao)
+
+    return JsonResponse(resultado)
 
 
 # === Fim do arquivo: ./api/views.py ===
@@ -282,124 +821,6 @@ def analisar_cena(request, data: NarrativaSchema):
 
 
 # === Fim do arquivo: ./api/migrations/__init__.py ===
-
-# === Início do arquivo: ./api/templates/index.html ===
-
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LabSUS | RPG AI Engine</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-</head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4">
-
-    <div class="max-w-2xl w-full bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
-        <div class="bg-slate-700/50 p-6 border-b border-slate-600">
-            <div class="flex items-center gap-3">
-                <div class="bg-blue-500 p-2 rounded-lg">
-                    <i class="fas fa-brain text-white"></i>
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold tracking-tight">LabSUS <span class="text-blue-400 text-sm font-medium">RPG Engine</span></h1>
-                    <p class="text-slate-400 text-xs">Mapeamento Semântico de Regras e Narrativas</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="p-6 space-y-4">
-            <div>
-                <label for="textoCena" class="block text-sm font-medium text-slate-300 mb-2">Descrição da Cena / Entrada Narrativa</label>
-                <textarea id="textoCena"
-                    class="w-full h-40 bg-slate-900 border border-slate-600 rounded-xl p-4 text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-                    placeholder="Ex: Katara ergueu as mãos e a água se curvou, criando um escudo translúcido enquanto Jet aguardava..."></textarea>
-            </div>
-
-            <button onclick="analisarCena()" id="btnConsultar"
-                class="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20">
-                <i class="fas fa-bolt"></i>
-                Consultar Motor RAG
-            </button>
-
-            <div id="loader" class="hidden flex items-center justify-center py-8 gap-3 text-blue-400">
-                <svg class="animate-spin h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span class="text-sm animate-pulse">Processando vetores...</span>
-            </div>
-
-            <div id="result" class="hidden mt-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div class="bg-blue-500/10 border border-blue-500/30 rounded-xl p-5 relative overflow-hidden">
-                    <div class="absolute top-0 right-0 p-3 opacity-10">
-                        <i class="fas fa-scroll text-6xl"></i>
-                    </div>
-                    <h3 class="text-blue-400 font-bold text-lg mb-2 flex items-center gap-2">
-                        <i class="fas fa-microchip"></i>
-                        <span id="regraNome"></span>
-                    </h3>
-                    <p id="regraDetalhes" class="text-slate-300 text-sm leading-relaxed italic"></p>
-                </div>
-            </div>
-        </div>
-
-        <div class="p-4 bg-slate-900/50 text-center border-t border-slate-700">
-            <span class="text-[10px] text-slate-500 uppercase tracking-widest">Powered by Django Ninja & Vector Search</span>
-        </div>
-    </div>
-
-    <script>
-        async function analisarCena() {
-            const texto = document.getElementById('textoCena').value;
-            const loader = document.getElementById('loader');
-            const resultDiv = document.getElementById('result');
-            const btn = document.getElementById('btnConsultar');
-
-            if (!texto) {
-                alert("O campo de narrativa não pode estar vazio.");
-                return;
-            }
-
-            // Interface State
-            loader.classList.remove('hidden');
-            resultDiv.classList.add('hidden');
-            btn.disabled = true;
-            btn.classList.add('opacity-50', 'cursor-not-allowed');
-
-            try {
-                // Endpoint do seu Django Ninja
-                const response = await fetch('http://127.0.0.1:8000/api/rpg/analisar-cena', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ texto: texto })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    document.getElementById('regraNome').innerText = data.regra_detectada;
-                    document.getElementById('regraDetalhes').innerText = data.detalhes;
-                    resultDiv.classList.remove('hidden');
-                } else {
-                    console.error("Erro na API:", data);
-                }
-            } catch (error) {
-                console.error("Erro de conexão:", error);
-                alert("Falha ao conectar com o backend. Verifique se o Django está em execução.");
-            } finally {
-                loader.classList.add('hidden');
-                btn.disabled = false;
-                btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            }
-        }
-    </script>
-</body>
-</html>
-
-
-# === Fim do arquivo: ./api/templates/index.html ===
 
 # === Início do arquivo: ./core/__init__.py ===
 
@@ -412,19 +833,37 @@ def analisar_cena(request, data: NarrativaSchema):
 """
 ASGI config for core project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
+Configuração para:
+- HTTP (Django normal)
+- WebSocket (Django Channels)
 """
 
 import os
-
 from django.core.asgi import get_asgi_application
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.auth import AuthMiddlewareStack
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+import api.routing  # Importa as rotas WebSocket
 
-application = get_asgi_application()
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+
+# Aplicação HTTP tradicional
+django_asgi_app = get_asgi_application()
+
+# Aplicação principal ASGI
+application = ProtocolTypeRouter({
+
+    # Requisições HTTP normais
+    "http": django_asgi_app,
+
+    # WebSockets
+    "websocket": AuthMiddlewareStack(
+        URLRouter(
+            api.routing.websocket_urlpatterns
+        )
+    ),
+
+})
 
 
 # === Fim do arquivo: ./core/asgi.py ===
@@ -471,6 +910,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'corsheaders',  # Adicione isto
+    'api',
+    'rest_framework',
+    "channels",
 ]
 
 MIDDLEWARE = [
@@ -489,8 +931,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
+        'DIRS': [BASE_DIR / 'templates'],
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
@@ -533,6 +974,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# core/settings.py
+CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000', 'http://localhost:8000']
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
@@ -554,6 +998,14 @@ STATIC_URL = 'static/'
 # Libera o acesso para o seu HTML local
 CORS_ALLOW_ALL_ORIGINS = True
 
+
+ASGI_APPLICATION = "core.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
 # Se quiser ser mais rígido por segurança:
 # CORS_ALLOWED_ORIGINS = ["http://localhost", "http://127.0.0.1"]
 
@@ -562,14 +1014,25 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # === Início do arquivo: ./core/urls.py ===
 
-# No arquivo core/urls.py
 from django.contrib import admin
 from django.urls import path
-from labsus.api import api  # Substitua 'labsus' pelo nome da sua pasta/app
+
+from api.views import (
+    index_view,
+    dashboard_view,
+    analisar_cena,
+    criar_sessao_view,
+    combate_view,
+)
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/', api.urls),  # Todas as rotas do Ninja começarão com /api/
+    path("", index_view),
+    path("admin/", admin.site.urls),
+    path("dashboard/", dashboard_view),
+
+    path("api/rpg/criar-sessao", criar_sessao_view),
+    path("api/rpg/analisar-cena", analisar_cena),
+    path("api/rpg/combate", combate_view),
 ]
 
 
@@ -596,4 +1059,275 @@ application = get_wsgi_application()
 
 
 # === Fim do arquivo: ./core/wsgi.py ===
+
+# === Início do arquivo: ./templates/index.html ===
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>RPG AI Multiplayer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+
+<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-black text-slate-200 min-h-screen">
+
+<div class="max-w-7xl mx-auto p-6">
+
+    <!-- HEADER -->
+    <div class="text-center mb-10">
+        <h1 class="text-5xl font-bold text-cyan-400 tracking-wide">
+            RPG AI Multiplayer
+        </h1>
+        <p class="text-slate-400 mt-2">D&D + QWAN + WebSocket</p>
+    </div>
+
+    <!-- CONFIGURAÇÃO -->
+    <div class="bg-slate-900/70 backdrop-blur p-6 rounded-2xl shadow-2xl mb-8">
+        <h2 class="text-xl text-cyan-300 mb-4">Configuração</h2>
+
+        <div class="grid md:grid-cols-4 gap-4">
+
+            <input id="nome" placeholder="Nome"
+                class="bg-slate-800 p-3 rounded-lg w-full">
+
+            <select id="classe"
+                class="bg-slate-800 p-3 rounded-lg w-full">
+                <option value="guerreiro">Guerreiro</option>
+                <option value="mago">Mago</option>
+                <option value="ladino">Ladino</option>
+            </select>
+
+            <input id="roomId" placeholder="Sala (ex: dungeon1)"
+                class="bg-slate-800 p-3 rounded-lg w-full">
+
+            <button onclick="criarSessao()"
+                class="bg-cyan-600 hover:bg-cyan-500 transition px-6 py-3 rounded-lg font-semibold">
+                Iniciar
+            </button>
+
+        </div>
+    </div>
+
+    <!-- STATUS -->
+    <div class="grid md:grid-cols-3 gap-6 mb-8">
+
+        <!-- PLAYER -->
+        <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
+            <h3 class="text-cyan-300 text-lg mb-4">Personagem</h3>
+            <p>HP: <span id="hp">-</span></p>
+            <p>Mana: <span id="mana">-</span></p>
+            <p>XP: <span id="xp">-</span></p>
+            <p class="text-xs text-slate-400 mt-3">
+                Sessão: <span id="sessionId">-</span>
+            </p>
+        </div>
+
+        <!-- INIMIGO -->
+        <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
+            <h3 class="text-red-400 text-lg mb-4">Inimigo</h3>
+            <p>HP: <span id="hpInimigo">-</span></p>
+        </div>
+
+        <!-- SALA -->
+        <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
+            <h3 class="text-purple-400 text-lg mb-4">Sala</h3>
+            <p>ID: <span id="currentRoom">-</span></p>
+        </div>
+
+    </div>
+
+    <!-- LOG + CHAT -->
+    <div class="grid md:grid-cols-2 gap-6 mb-8">
+
+        <!-- NARRATIVA -->
+        <div class="bg-slate-900 p-6 rounded-xl shadow-xl">
+            <h3 class="text-cyan-300 text-lg mb-4">Narrativa</h3>
+
+            <div id="narrativa"
+                 class="bg-slate-800 p-4 rounded-lg h-72 overflow-y-auto text-sm whitespace-pre-wrap">
+                Aguardando início...
+            </div>
+
+            <div class="flex gap-3 mt-4">
+                <input id="inputNarrativa"
+                    placeholder="Descreva sua ação..."
+                    class="bg-slate-800 p-3 rounded-lg w-full">
+
+                <button onclick="enviarNarrativa()"
+                    class="bg-emerald-600 hover:bg-emerald-500 transition px-5 rounded-lg">
+                    Enviar
+                </button>
+            </div>
+        </div>
+
+        <!-- CHAT MULTIPLAYER -->
+        <div class="bg-slate-900 p-6 rounded-xl shadow-xl">
+            <h3 class="text-purple-300 text-lg mb-4">Chat da Sala</h3>
+
+            <div id="chat"
+                 class="bg-slate-800 p-4 rounded-lg h-72 overflow-y-auto text-sm whitespace-pre-wrap">
+            </div>
+
+            <div class="flex gap-3 mt-4">
+                <input id="chatInput"
+                    placeholder="Mensagem..."
+                    class="bg-slate-800 p-3 rounded-lg w-full">
+
+                <button onclick="enviarChat()"
+                    class="bg-purple-600 hover:bg-purple-500 transition px-5 rounded-lg">
+                    Enviar
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- AÇÕES -->
+    <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
+        <h3 class="text-cyan-300 text-lg mb-4">Ações</h3>
+
+        <div class="flex flex-wrap gap-4">
+            <button onclick="executarCombate('Atacar')"
+                class="bg-red-600 hover:bg-red-500 transition px-6 py-3 rounded-lg">
+                ⚔️ Atacar
+            </button>
+
+            <button onclick="executarCombate('Magia')"
+                class="bg-purple-600 hover:bg-purple-500 transition px-6 py-3 rounded-lg">
+                ✨ Magia
+            </button>
+
+            <button onclick="executarCombate('Defender')"
+                class="bg-yellow-600 hover:bg-yellow-500 transition px-6 py-3 rounded-lg">
+                🛡️ Defender
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+
+let sessionId = null;
+let socket = null;
+let roomId = null;
+
+function adicionarTexto(divId, texto) {
+    const div = document.getElementById(divId);
+    div.innerText += "\n" + texto;
+    div.scrollTop = div.scrollHeight;
+}
+
+async function criarSessao() {
+
+    const nome = document.getElementById("nome").value || "Aventureiro";
+    const classe = document.getElementById("classe").value;
+    roomId = document.getElementById("roomId").value || "sala1";
+
+    document.getElementById("currentRoom").innerText = roomId;
+
+    const response = await fetch("/api/rpg/criar-sessao", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ nome: nome, classe: classe })
+    });
+
+    const data = await response.json();
+
+    sessionId = data.session_id;
+    document.getElementById("sessionId").innerText = sessionId;
+    document.getElementById("hp").innerText = data.personagem.hp;
+    document.getElementById("mana").innerText = data.personagem.mana;
+    document.getElementById("xp").innerText = data.personagem.xp;
+
+    conectarWebSocket();
+}
+
+function conectarWebSocket() {
+
+    socket = new WebSocket(
+        "ws://" + window.location.host + "/ws/rpg/" + roomId + "/"
+    );
+
+    socket.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        if (data.tipo === "chat")
+            adicionarTexto("chat", data.nome + ": " + data.texto);
+
+        if (data.tipo === "narrativa")
+            adicionarTexto("narrativa", data.texto);
+    };
+}
+
+function enviarChat() {
+
+    const texto = document.getElementById("chatInput").value;
+    if (!texto) return;
+
+    socket.send(JSON.stringify({
+        tipo: "chat",
+        nome: document.getElementById("nome").value,
+        texto: texto
+    }));
+
+    document.getElementById("chatInput").value = "";
+}
+
+async function enviarNarrativa() {
+
+    const texto = document.getElementById("inputNarrativa").value;
+    if (!texto) return;
+
+    const response = await fetch("/api/rpg/analisar-cena", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ textos: [texto] })
+    });
+
+    const data = await response.json();
+
+    adicionarTexto("narrativa", data.narrativa);
+
+    socket.send(JSON.stringify({
+        tipo: "narrativa",
+        texto: data.narrativa
+    }));
+}
+
+async function executarCombate(acao) {
+
+    const response = await fetch("/api/rpg/combate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            session_id: sessionId,
+            acao: acao
+        })
+    });
+
+    const data = await response.json();
+
+    adicionarTexto("narrativa", data.narrativa);
+
+    document.getElementById("hp").innerText = data.hp;
+    document.getElementById("mana").innerText = data.mana;
+    document.getElementById("xp").innerText = data.xp;
+    document.getElementById("hpInimigo").innerText = data.hp_inimigo;
+
+    socket.send(JSON.stringify({
+        tipo: "narrativa",
+        texto: data.narrativa
+    }));
+}
+
+</script>
+
+</body>
+</html>
+
+
+# === Fim do arquivo: ./templates/index.html ===
 
