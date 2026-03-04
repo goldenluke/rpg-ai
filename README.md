@@ -309,4 +309,3 @@ MIT License
 # 🌌 Autor
 
 Lucas Dourado  
-Medicina | Ciência de Dados | Engenharia Narrativa
