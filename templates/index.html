@@ -1,265 +1,524 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
+
 <meta charset="UTF-8">
-<title>RPG AI Multiplayer</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<title>Procedural RPG</title>
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.tailwindcss.com"></script>
+
 </head>
+
 
 <body class="bg-gradient-to-br from-slate-950 via-slate-900 to-black text-slate-200 min-h-screen">
 
-<div class="max-w-7xl mx-auto p-6">
 
-    <!-- HEADER -->
-    <div class="text-center mb-10">
-        <h1 class="text-5xl font-bold text-cyan-400 tracking-wide">
-            RPG AI Multiplayer
-        </h1>
-        <p class="text-slate-400 mt-2">D&D + QWAN + WebSocket</p>
-    </div>
+<div class="max-w-7xl mx-auto p-6 space-y-6">
 
-    <!-- CONFIGURAÇÃO -->
-    <div class="bg-slate-900/70 backdrop-blur p-6 rounded-2xl shadow-2xl mb-8">
-        <h2 class="text-xl text-cyan-300 mb-4">Configuração</h2>
 
-        <div class="grid md:grid-cols-4 gap-4">
+<!-- HEADER -->
 
-            <input id="nome" placeholder="Nome"
-                class="bg-slate-800 p-3 rounded-lg w-full">
+<header class="text-center space-y-2">
 
-            <select id="classe"
-                class="bg-slate-800 p-3 rounded-lg w-full">
-                <option value="guerreiro">Guerreiro</option>
-                <option value="mago">Mago</option>
-                <option value="ladino">Ladino</option>
-            </select>
+<h1 class="text-5xl font-bold text-cyan-400">
+Procedural RPG
+</h1>
 
-            <input id="roomId" placeholder="Sala (ex: dungeon1)"
-                class="bg-slate-800 p-3 rounded-lg w-full">
+<p class="text-slate-400">
+Narrativa procedural persistente
+</p>
 
-            <button onclick="criarSessao()"
-                class="bg-cyan-600 hover:bg-cyan-500 transition px-6 py-3 rounded-lg font-semibold">
-                Iniciar
-            </button>
+</header>
 
-        </div>
-    </div>
 
-    <!-- STATUS -->
-    <div class="grid md:grid-cols-3 gap-6 mb-8">
 
-        <!-- PLAYER -->
-        <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
-            <h3 class="text-cyan-300 text-lg mb-4">Personagem</h3>
-            <p>HP: <span id="hp">-</span></p>
-            <p>Mana: <span id="mana">-</span></p>
-            <p>XP: <span id="xp">-</span></p>
-            <p class="text-xs text-slate-400 mt-3">
-                Sessão: <span id="sessionId">-</span>
-            </p>
-        </div>
+<!-- STATUS BAR -->
 
-        <!-- INIMIGO -->
-        <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
-            <h3 class="text-red-400 text-lg mb-4">Inimigo</h3>
-            <p>HP: <span id="hpInimigo">-</span></p>
-        </div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
 
-        <!-- SALA -->
-        <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
-            <h3 class="text-purple-400 text-lg mb-4">Sala</h3>
-            <p>ID: <span id="currentRoom">-</span></p>
-        </div>
+<div class="bg-slate-900 rounded-xl p-4 shadow">
 
-    </div>
+<div class="text-sm text-slate-400">HP</div>
 
-    <!-- LOG + CHAT -->
-    <div class="grid md:grid-cols-2 gap-6 mb-8">
-
-        <!-- NARRATIVA -->
-        <div class="bg-slate-900 p-6 rounded-xl shadow-xl">
-            <h3 class="text-cyan-300 text-lg mb-4">Narrativa</h3>
-
-            <div id="narrativa"
-                 class="bg-slate-800 p-4 rounded-lg h-72 overflow-y-auto text-sm whitespace-pre-wrap">
-                Aguardando início...
-            </div>
-
-            <div class="flex gap-3 mt-4">
-                <input id="inputNarrativa"
-                    placeholder="Descreva sua ação..."
-                    class="bg-slate-800 p-3 rounded-lg w-full">
-
-                <button onclick="enviarNarrativa()"
-                    class="bg-emerald-600 hover:bg-emerald-500 transition px-5 rounded-lg">
-                    Enviar
-                </button>
-            </div>
-        </div>
-
-        <!-- CHAT MULTIPLAYER -->
-        <div class="bg-slate-900 p-6 rounded-xl shadow-xl">
-            <h3 class="text-purple-300 text-lg mb-4">Chat da Sala</h3>
-
-            <div id="chat"
-                 class="bg-slate-800 p-4 rounded-lg h-72 overflow-y-auto text-sm whitespace-pre-wrap">
-            </div>
-
-            <div class="flex gap-3 mt-4">
-                <input id="chatInput"
-                    placeholder="Mensagem..."
-                    class="bg-slate-800 p-3 rounded-lg w-full">
-
-                <button onclick="enviarChat()"
-                    class="bg-purple-600 hover:bg-purple-500 transition px-5 rounded-lg">
-                    Enviar
-                </button>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- AÇÕES -->
-    <div class="bg-slate-900 p-6 rounded-xl shadow-lg">
-        <h3 class="text-cyan-300 text-lg mb-4">Ações</h3>
-
-        <div class="flex flex-wrap gap-4">
-            <button onclick="executarCombate('Atacar')"
-                class="bg-red-600 hover:bg-red-500 transition px-6 py-3 rounded-lg">
-                ⚔️ Atacar
-            </button>
-
-            <button onclick="executarCombate('Magia')"
-                class="bg-purple-600 hover:bg-purple-500 transition px-6 py-3 rounded-lg">
-                ✨ Magia
-            </button>
-
-            <button onclick="executarCombate('Defender')"
-                class="bg-yellow-600 hover:bg-yellow-500 transition px-6 py-3 rounded-lg">
-                🛡️ Defender
-            </button>
-        </div>
-    </div>
+<div id="hp" class="text-2xl text-red-400 font-bold">
+100
+</div>
 
 </div>
 
+<div class="bg-slate-900 rounded-xl p-4 shadow">
+
+<div class="text-sm text-slate-400">Mana</div>
+
+<div id="mana" class="text-2xl text-blue-400 font-bold">
+60
+</div>
+
+</div>
+
+<div class="bg-slate-900 rounded-xl p-4 shadow">
+
+<div class="text-sm text-slate-400">XP</div>
+
+<div id="xp" class="text-2xl text-yellow-400 font-bold">
+0
+</div>
+
+</div>
+
+<div class="bg-slate-900 rounded-xl p-4 shadow">
+
+<div class="text-sm text-slate-400">Ouro</div>
+
+<div id="gold" class="text-2xl text-yellow-300 font-bold">
+100
+</div>
+
+</div>
+
+</div>
+
+
+
+<!-- MAIN GRID -->
+
+<div class="grid lg:grid-cols-3 gap-6">
+
+
+<!-- NARRATIVA -->
+
+<div class="lg:col-span-2 bg-slate-900 rounded-xl p-6 flex flex-col">
+
+<h2 class="text-cyan-300 text-lg mb-4">
+📖 Narrativa
+</h2>
+
+
+<div id="narrativa"
+
+class="bg-slate-800 rounded-lg p-4 h-[520px] overflow-y-auto space-y-4 text-sm">
+
+Carregando narrativa...
+
+</div>
+
+
+<div class="flex gap-3 mt-4">
+
+<input
+id="inputNarrativa"
+placeholder="Descreva sua ação..."
+class="bg-slate-800 rounded-lg p-3 w-full outline-none focus:ring-2 focus:ring-cyan-500"
+/>
+
+<button
+onclick="enviarNarrativa()"
+class="bg-emerald-600 hover:bg-emerald-500 px-6 rounded-lg"
+>
+Enviar
+</button>
+
+</div>
+
+</div>
+
+
+
+<!-- SIDEBAR -->
+
+<div class="space-y-6">
+
+
+<!-- INVENTARIO -->
+
+<div class="bg-slate-900 rounded-xl p-4">
+
+<h3 class="text-green-300 mb-3">
+🎒 Inventário
+</h3>
+
+<ul id="inventario" class="space-y-1 text-sm">
+
+<li>Espada</li>
+<li>Poção</li>
+
+</ul>
+
+</div>
+
+
+
+<!-- COMBATE -->
+
+<div class="bg-slate-900 rounded-xl p-4">
+
+<h3 class="text-red-400 mb-3">
+⚔️ Combate
+</h3>
+
+<div class="grid gap-2">
+
+<button
+onclick="executarCombate('Atacar')"
+class="bg-red-600 hover:bg-red-500 py-2 rounded">
+Atacar
+</button>
+
+<button
+onclick="executarCombate('Magia')"
+class="bg-purple-600 hover:bg-purple-500 py-2 rounded">
+Magia
+</button>
+
+<button
+onclick="executarCombate('Defender')"
+class="bg-yellow-600 hover:bg-yellow-500 py-2 rounded">
+Defender
+</button>
+
+</div>
+
+</div>
+
+
+
+<!-- MUNDO -->
+
+<div class="bg-slate-900 rounded-xl p-4">
+
+<h3 class="text-indigo-300 mb-3">
+🌍 Mundo
+</h3>
+
+<div class="grid gap-2">
+
+<button
+onclick="spawnMonster()"
+class="bg-red-700 hover:bg-red-600 py-2 rounded">
+Encontrar Monstro
+</button>
+
+<button
+onclick="gerarDungeon()"
+class="bg-indigo-600 hover:bg-indigo-500 py-2 rounded">
+Explorar Dungeon
+</button>
+
+<button
+onclick="criarFacao()"
+class="bg-purple-600 hover:bg-purple-500 py-2 rounded">
+Nova Facção
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+
+<!-- ESTADO DO MUNDO -->
+
+<div class="bg-slate-900 rounded-xl p-6">
+
+<h2 class="text-cyan-300 text-lg mb-4">
+🌍 Estado do Mundo
+</h2>
+
+
+<div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
+
+<div class="bg-slate-800 rounded-lg p-3">
+
+<div class="text-xs text-slate-400">Cidades</div>
+
+<div id="citiesCount" class="text-lg font-bold">0</div>
+
+</div>
+
+
+<div class="bg-slate-800 rounded-lg p-3">
+
+<div class="text-xs text-slate-400">NPCs</div>
+
+<div id="npcCount" class="text-lg font-bold">0</div>
+
+</div>
+
+
+<div class="bg-slate-800 rounded-lg p-3">
+
+<div class="text-xs text-slate-400">Facções</div>
+
+<div id="factionCount" class="text-lg font-bold">0</div>
+
+</div>
+
+
+<div class="bg-slate-800 rounded-lg p-3">
+
+<div class="text-xs text-slate-400">Quests</div>
+
+<div id="questCount" class="text-lg font-bold">0</div>
+
+</div>
+
+
+<div class="bg-slate-800 rounded-lg p-3">
+
+<div class="text-xs text-slate-400">Eventos</div>
+
+<div id="eventCount" class="text-lg font-bold">0</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+</div>
+
+
+
 <script>
 
-let sessionId = null;
-let socket = null;
-let roomId = null;
 
-function adicionarTexto(divId, texto) {
-    const div = document.getElementById(divId);
-    div.innerText += "\n" + texto;
-    div.scrollTop = div.scrollHeight;
+let historyNarrativa = []
+
+
+function renderNarrativa(){
+
+const div = document.getElementById("narrativa")
+
+div.innerHTML=""
+
+historyNarrativa.forEach(item=>{
+
+const bloco=document.createElement("div")
+
+if(item.tipo==="prompt"){
+
+bloco.innerHTML=`
+<div class="text-emerald-400 font-semibold">Você</div>
+<div class="text-slate-200">${item.texto}</div>
+`
+
 }
 
-async function criarSessao() {
+if(item.tipo==="resposta"){
 
-    const nome = document.getElementById("nome").value || "Aventureiro";
-    const classe = document.getElementById("classe").value;
-    roomId = document.getElementById("roomId").value || "sala1";
+bloco.innerHTML=`
+<div class="text-cyan-400 font-semibold">Narrador</div>
+<div class="text-slate-300">${item.texto}</div>
+`
 
-    document.getElementById("currentRoom").innerText = roomId;
-
-    const response = await fetch("/api/rpg/criar-sessao", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ nome: nome, classe: classe })
-    });
-
-    const data = await response.json();
-
-    sessionId = data.session_id;
-    document.getElementById("sessionId").innerText = sessionId;
-    document.getElementById("hp").innerText = data.personagem.hp;
-    document.getElementById("mana").innerText = data.personagem.mana;
-    document.getElementById("xp").innerText = data.personagem.xp;
-
-    conectarWebSocket();
 }
 
-function conectarWebSocket() {
+div.appendChild(bloco)
 
-    socket = new WebSocket(
-        "ws://" + window.location.host + "/ws/rpg/" + roomId + "/"
-    );
+})
 
-    socket.onmessage = function(event) {
-        const data = JSON.parse(event.data);
+div.scrollTop = div.scrollHeight
 
-        if (data.tipo === "chat")
-            adicionarTexto("chat", data.nome + ": " + data.texto);
-
-        if (data.tipo === "narrativa")
-            adicionarTexto("narrativa", data.texto);
-    };
 }
 
-function enviarChat() {
 
-    const texto = document.getElementById("chatInput").value;
-    if (!texto) return;
 
-    socket.send(JSON.stringify({
-        tipo: "chat",
-        nome: document.getElementById("nome").value,
-        texto: texto
-    }));
+async function carregarHistorico(){
 
-    document.getElementById("chatInput").value = "";
+const r = await fetch("/api/world/history")
+
+const data = await r.json()
+
+historyNarrativa=[]
+
+data.history.forEach(item=>{
+
+historyNarrativa.push({
+tipo:"prompt",
+texto:item.prompt
+})
+
+historyNarrativa.push({
+tipo:"resposta",
+texto:item.resposta
+})
+
+})
+
+renderNarrativa()
+
 }
 
-async function enviarNarrativa() {
 
-    const texto = document.getElementById("inputNarrativa").value;
-    if (!texto) return;
 
-    const response = await fetch("/api/rpg/analisar-cena", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ textos: [texto] })
-    });
+async function enviarNarrativa(){
 
-    const data = await response.json();
+const texto=document.getElementById("inputNarrativa").value
 
-    adicionarTexto("narrativa", data.narrativa);
+if(!texto) return
 
-    socket.send(JSON.stringify({
-        tipo: "narrativa",
-        texto: data.narrativa
-    }));
+historyNarrativa.push({
+tipo:"prompt",
+texto:texto
+})
+
+renderNarrativa()
+
+const r = await fetch("/api/rpg/analisar-cena",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+textos:[texto]
+
+})
+
+})
+
+const data = await r.json()
+
+historyNarrativa.push({
+tipo:"resposta",
+texto:data.narrativa
+})
+
+renderNarrativa()
+
+document.getElementById("inputNarrativa").value=""
+
 }
 
-async function executarCombate(acao) {
 
-    const response = await fetch("/api/rpg/combate", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            session_id: sessionId,
-            acao: acao
-        })
-    });
 
-    const data = await response.json();
+async function executarCombate(acao){
 
-    adicionarTexto("narrativa", data.narrativa);
+const r = await fetch("/api/rpg/combate",{
 
-    document.getElementById("hp").innerText = data.hp;
-    document.getElementById("mana").innerText = data.mana;
-    document.getElementById("xp").innerText = data.xp;
-    document.getElementById("hpInimigo").innerText = data.hp_inimigo;
+method:"POST",
 
-    socket.send(JSON.stringify({
-        tipo: "narrativa",
-        texto: data.narrativa
-    }));
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+session_id:"player",
+acao:acao
+
+})
+
+})
+
+const data = await r.json()
+
+historyNarrativa.push({
+tipo:"resposta",
+texto:data.narrativa
+})
+
+renderNarrativa()
+
 }
+
+
+
+async function spawnMonster(){
+
+const r = await fetch("/api/world/monster")
+
+const data = await r.json()
+
+historyNarrativa.push({
+
+tipo:"resposta",
+texto:"🐉 Um "+data.monster.tipo+" apareceu!"
+
+})
+
+renderNarrativa()
+
+}
+
+
+
+async function gerarDungeon(){
+
+const r = await fetch("/api/world/dungeon")
+
+const data = await r.json()
+
+historyNarrativa.push({
+
+tipo:"resposta",
+texto:"🏰 Dungeon encontrada com "+data.dungeon.salas.length+" salas."
+
+})
+
+renderNarrativa()
+
+}
+
+
+
+async function criarFacao(){
+
+const r = await fetch("/api/world/faction")
+
+const data = await r.json()
+
+historyNarrativa.push({
+
+tipo:"resposta",
+texto:"🏳️ Nova facção surgiu: "+data.faction.nome
+
+})
+
+renderNarrativa()
+
+}
+
+
+
+async function carregarEstadoMundo(){
+
+const r = await fetch("/api/world/state")
+
+const data = await r.json()
+
+const world=data.world
+
+document.getElementById("citiesCount").innerText = Object.keys(world.cities).length
+document.getElementById("npcCount").innerText = Object.keys(world.npcs).length
+document.getElementById("factionCount").innerText = Object.keys(world.factions).length
+document.getElementById("questCount").innerText = Object.keys(world.quests).length
+document.getElementById("eventCount").innerText = world.history.length
+
+}
+
+
+
+setInterval(carregarEstadoMundo,5000)
+
+carregarHistorico()
+
+carregarEstadoMundo()
+
 
 </script>
+
 
 </body>
 </html>

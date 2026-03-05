@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',  # Adicione isto
     "channels",
-    'api',
+    'api.apps.ApiConfig',
     'rest_framework',
 
 ]

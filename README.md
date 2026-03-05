@@ -1,312 +1,402 @@
-# 🧠 RPG AI Multiplayer
-### D&D Engine + QWAN Narrative System + Discord Integration
+# 🌍 Procedural RPG Engine
+### Narrativa Procedural • Mundo Vivo • IA Semântica
 
-Sistema multiplayer de RPG inspirado em D&D, com:
+Um **motor experimental de RPG procedural** que combina **simulação de mundo**, **narrativa gerada por IA** e **sistemas emergentes**.
 
-- ⚔️ Combate estruturado (HP, Mana, Stats)
-- 🧠 Motor narrativo QWAN (metaestado dinâmico)
-- 🤖 Bot Discord multiplayer
-- 🔌 WebSocket em tempo real
-- 🏰 Suporte a salas cooperativas
-- 🐉 Boss adaptativo
-- 📊 Arquitetura escalável
+Inspirado em:
 
----
-
-# 🌊 Conceito
-
-O RPG AI Multiplayer é um sistema híbrido que combina:
-
-- Mecânica clássica de RPG (D20, atributos, dano)
-- Processamento semântico via embeddings
-- Metaestado narrativo (QWAN)
-- Multiplayer por canal Discord
-
-Cada canal do Discord funciona como uma dungeon independente.
+- AI Dungeon  
+- Dwarf Fortress  
+- RimWorld  
+- Roguelikes clássicos  
 
 ---
 
-# 🧠 QWAN — Quality Without A Name
+# ✨ Ideia do Projeto
 
-O sistema narrativo usa embeddings semânticos para calcular o regime narrativo.
+Criar um **RPG infinito**, onde:
 
-### Similaridade Vetorial
+- o mundo evolui sozinho
+- eventos emergem naturalmente
+- a narrativa responde às ações do jogador
+- a história nunca se repete
 
-Dado um texto do jogador:
+Fluxo conceitual:
 
-$$
-\vec{t} = \text{MiniLM}(texto)
-$$
-
-E âncoras semânticas:
-
-$$
-\vec{a}_{combate}, \vec{a}_{magia}, \vec{a}_{drama}
-$$
-
-A similaridade é:
-
-$$
-\text{sim}(\vec{t}, \vec{a}) =
-\frac{\vec{t} \cdot \vec{a}}
-{\|\vec{t}\| \|\vec{a}\|}
-$$
+```
+jogador age
+    ↓
+evento no mundo
+    ↓
+motor narrativo interpreta
+    ↓
+IA gera narrativa
+    ↓
+história evolui
+```
 
 ---
 
-### Regime Narrativo
+# 🧠 Arquitetura
 
-O regime é determinado por:
+```
+Procedural RPG
+│
+├── QWAN Narrative Engine
+│
+├── World Simulation
+│   ├── cidades
+│   ├── NPCs
+│   ├── facções
+│   ├── quests
+│   └── eventos
+│
+├── Combat System
+│
+├── Procedural Dungeons
+│
+├── Monster Generator
+│
+├── Persistent Narrative Memory
+│
+└── Web Interface
+```
 
-$$
-\text{Regime} =
-\begin{cases}
-\text{Épico} & \text{se } \|\vec{t}\| > \theta \\
-\text{Tenso} & \text{se } sim_{combate} > 0.6 \\
-\text{Místico} & \text{se } sim_{magia} > 0.6 \\
-\text{Calmo} & \text{caso contrário}
-\end{cases}
-$$
+---
 
-O regime altera:
+# 🧠 Motor Narrativo (QWAN)
 
-- Descrição do dano
-- Tom da narrativa
-- Reação do boss
-- Evolução do combate
+O motor utiliza **embeddings semânticos** para interpretar o tom da narrativa.
+
+Exemplo:
+
+```
+entrada do jogador
+"eu ataco o monstro"
+
+↓ embeddings
+
+detecção: combate
+
+↓ narrativa gerada
+
+"O impacto do seu golpe ecoa pelo salão..."
+```
+
+Tipos de narrativa detectados:
+
+- combate  
+- magia  
+- drama  
+- exploração  
+- neutro  
+
+---
+
+# 🌍 Simulação de Mundo
+
+O mundo possui **simulação contínua**.
+
+A cada ciclo:
+
+- novas cidades podem surgir
+- NPCs aparecem
+- facções ganham poder
+- quests são criadas
+- eventos históricos são registrados
+
+Exemplo de eventos:
+
+```
+Cidade fundada: Aldoria
+Novo NPC apareceu: mercador
+Nova quest: Explore ruínas
+Facção surgiu: Ordem da Chama
+```
 
 ---
 
 # ⚔️ Sistema de Combate
 
-Baseado em D20.
-
-### Rolagem
-
-$$
-R = \text{rand}(1, 20)
-$$
-
-$$
-Total = R + Modificador
-$$
-
----
-
-### Dano
-
-Se:
-
-$$
-Total \geq Defesa
-$$
-
-Então:
-
-$$
-HP_{inimigo} = HP_{inimigo} - Dano
-$$
-
-Mana é consumida conforme:
-
-$$
-Mana_{novo} = Mana - Custo_{magia}
-$$
-
----
-
-# 🏰 Multiplayer
-
-Cada canal Discord = 1 sala.
-
-Estrutura interna:
+Combate inspirado em **D&D**.
 
 ```
-ROOMS = {
-  channel_id: {
-    players: {user_id: session_id},
-    turn_order: [],
-    current_turn: user_id,
-    guild: None
-  }
-}
+rolagem d20
+    ↓
+checagem de sucesso
+    ↓
+cálculo de dano
+    ↓
+estado do inimigo muda
 ```
 
-Turno avança circularmente:
+Boss possui **fases adaptativas**:
 
-$$
-turno_{novo} = (turno_{atual} + 1) \mod n
-$$
+```
+HP > 80  → fase 1
+HP > 40  → fase 2
+HP < 40  → fase 3
+```
+
+Cada fase muda o comportamento do inimigo.
 
 ---
 
-# 🐉 Boss Cooperativo
+# 🏰 Dungeons Procedurais
 
-Cada sala possui:
+Dungeons são geradas dinamicamente.
 
-- HP
-- Fases
-- Regime adaptativo
-- Estado emocional (futuro)
-
-Transição de fase:
-
-$$
-\text{Fase 2 se } HP < 70\%
-$$
-
-$$
-\text{Fase 3 se } HP < 40\%
-$$
-
----
-
-# 🤖 Discord Bot
-
-Comandos disponíveis:
+Estrutura:
 
 ```
-/criar nome classe
-/narrar texto
-/acao tipo
-/status
+salas
+armadilhas
+monstros
+tesouros
 ```
 
-### Fluxo:
+Exemplo:
 
-1. Jogador cria personagem
-2. Entra automaticamente na sala (canal)
-3. Turnos são controlados
-4. Combate cooperativo
-5. Narrativa adaptativa via QWAN
-
----
-
-# 📦 Instalação
-
-## 1️⃣ Clonar projeto
-
-```bash
-git clone https://github.com/seuusuario/rpg-ai
-cd rpg-ai
+```
+Dungeon encontrada com 7 salas
 ```
 
 ---
 
-## 2️⃣ Criar ambiente virtual
+# 🐉 Gerador de Monstros
 
-```bash
+Monstros são criados proceduralmente.
+
+Tipos possíveis:
+
+```
+Goblin
+Troll
+Hidra
+Aranha Gigante
+Espectro
+```
+
+Cada criatura possui:
+
+```
+HP
+nível
+tipo
+dano
+```
+
+---
+
+# 🎒 Inventário
+
+Jogadores podem possuir:
+
+```
+espada
+poções
+artefatos
+ouro
+```
+
+Itens surgem de:
+
+- loot
+- exploração
+- quests
+- eventos
+
+---
+
+# 💾 Memória Persistente
+
+A narrativa é armazenada no servidor.
+
+Endpoint:
+
+```
+/api/world/history
+```
+
+Mesmo após recarregar a página:
+
+```
+história continua
+```
+
+Fluxo:
+
+```
+jogador escreve
+      ↓
+motor narrativo responde
+      ↓
+evento salvo
+      ↓
+histórico reconstruído
+```
+
+---
+
+# 🌐 Interface Web
+
+Interface moderna construída com:
+
+```
+TailwindCSS
+Django
+JavaScript
+```
+
+Inclui:
+
+- painel de narrativa
+- sistema de combate
+- inventário
+- estado do mundo
+- eventos procedurais
+
+---
+
+# 📡 API
+
+### RPG
+
+```
+POST /api/rpg/analisar-cena
+POST /api/rpg/combate
+```
+
+### Mundo
+
+```
+GET /api/world/state
+GET /api/world/history
+GET /api/world/monster
+GET /api/world/dungeon
+GET /api/world/faction
+GET /api/world/map
+```
+
+---
+
+# 🚀 Como Rodar
+
+### 1️⃣ Clonar o repositório
+
+```
+git clone https://github.com/seuusuario/procedural-rpg
+cd procedural-rpg
+```
+
+---
+
+### 2️⃣ Criar ambiente virtual
+
+```
 python -m venv venv
+```
+
+Linux / Mac
+
+```
 source venv/bin/activate
 ```
 
+Windows
+
+```
+venv\Scripts\activate
+```
+
 ---
 
-## 3️⃣ Instalar dependências
+### 3️⃣ Instalar dependências
 
-```bash
+```
 pip install -r requirements.txt
 ```
 
 ---
 
-## 4️⃣ Configurar .env
+### 4️⃣ Rodar servidor
 
 ```
-DISCORD_TOKEN=SEU_TOKEN
-API_BASE_URL=http://127.0.0.1:8000/api/rpg
-```
-
----
-
-## 5️⃣ Rodar servidor Django
-
-```bash
 python manage.py runserver
 ```
 
 ---
 
-## 6️⃣ Rodar Bot Discord
+### 5️⃣ Abrir no navegador
 
-```bash
-python bot_main.py
+```
+http://127.0.0.1:8000
 ```
 
 ---
 
-# 🧩 Estrutura do Projeto
+# 📊 Estado do Mundo
+
+O painel mostra a evolução do mundo:
 
 ```
-rpg-ai/
- ├── api/
- │   ├── engine.py
- │   ├── views.py
- │   ├── consumers.py
- │   ├── routing.py
- │   └── models.py
- ├── bot_main.py
- ├── core/
- │   ├── settings.py
- │   ├── asgi.py
- │   └── urls.py
- ├── templates/
- ├── requirements.txt
- └── README.md
+Cidades
+NPCs
+Facções
+Quests
+Eventos
+```
+
+Atualizado automaticamente.
+
+---
+
+# 🔮 Roadmap
+
+Planejado para o projeto:
+
+- mapa procedural explorável
+- multiplayer persistente
+- economia dinâmica
+- NPCs com memória
+- guerras entre facções
+- narrativa contextual baseada em histórico
+- IA que cria quests complexas
+
+Objetivo final:
+
+```
+criar um RPG infinito
 ```
 
 ---
 
-# 🔌 WebSocket
+# 🧪 Status do Projeto
 
-Conexão multiplayer:
+Projeto **experimental de pesquisa em narrativa procedural**.
 
-```
-ws://localhost:8000/ws/rpg/<room_id>/
-```
+Explora:
 
-Permite:
-
-- Broadcast de narrativa
-- Chat cooperativo
-- Atualização em tempo real
-- Boss automático
+- inteligência artificial narrativa
+- sistemas complexos
+- jogos emergentes
+- simulação procedural
 
 ---
 
-# 📊 Roadmap
-
-- [ ] Persistência em PostgreSQL
-- [ ] Redis Channel Layer
-- [ ] Sistema de Guildas
-- [ ] Boss adaptativo por metaestado
-- [ ] Modo PvP
-- [ ] Mapa procedural
-- [ ] IA emergente multiagente
-
----
-
-# 🧬 Visão
-
-Este projeto explora:
-
-- Sistemas adaptativos
-- Narrativa emergente
-- Integração Discord + AI
-- Metaestabilidade em jogos cooperativos
-
-Não é apenas um RPG.
-É uma arquitetura de narrativa viva.
-
----
-
-# 🛡 Licença
+# 📜 Licença
 
 MIT License
 
 ---
 
-# 🌌 Autor
+# 👨‍💻 Autor
 
-Lucas Dourado  
-Medicina | Ciência de Dados | Engenharia Narrativa
+Lucas Dourado
+
+Projeto exploratório envolvendo:
+
+- IA narrativa
+- simulação procedural
+- sistemas emergentes
+- design de jogos experimentais

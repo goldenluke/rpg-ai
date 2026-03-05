@@ -1,22 +1,42 @@
 from django.contrib import admin
 from django.urls import path
+
 from api.views import (
+
+    dashboard_view,
+
     criar_sessao_view,
     analisar_cena,
     combate_view,
-    dashboard_view,
+
+    map_view,
+    monster_view,
+    dungeon_view,
+    faction_view,
+    world_state_view
+
 )
+from api.views import history_view
 
 urlpatterns = [
-    # Painel Admin
+
+    # admin
     path("admin/", admin.site.urls),
+    path("api/world/history", history_view),
+    # dashboard
+    path("", dashboard_view),
+    path("dashboard/", dashboard_view),
 
-    # Dashboard (abre no root)
-    path("", dashboard_view, name="home"),
-    path("dashboard/", dashboard_view, name="dashboard"),
+    # RPG
+    path("api/rpg/criar-sessao", criar_sessao_view),
+    path("api/rpg/analisar-cena", analisar_cena),
+    path("api/rpg/combate", combate_view),
 
-    # API RPG
-    path("api/rpg/criar-sessao", criar_sessao_view, name="criar_sessao"),
-    path("api/rpg/analisar-cena", analisar_cena, name="analisar_cena"),
-    path("api/rpg/combate", combate_view, name="combate"),
+    # WORLD ENGINE
+    path("api/world/map", map_view),
+    path("api/world/monster", monster_view),
+    path("api/world/dungeon", dungeon_view),
+    path("api/world/faction", faction_view),
+    path("api/world/state", world_state_view),
+
 ]
