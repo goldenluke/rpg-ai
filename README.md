@@ -392,6 +392,7 @@ MIT License
 
 # 👨‍💻 Autor
 
+<<<<<<< HEAD
 Lucas Dourado
 
 Projeto exploratório envolvendo:
@@ -400,3 +401,6 @@ Projeto exploratório envolvendo:
 - simulação procedural
 - sistemas emergentes
 - design de jogos experimentais
+=======
+Lucas Dourado  
+>>>>>>> 901aea80dab37bc6e55b9ebfe8bc2463173faf3f
